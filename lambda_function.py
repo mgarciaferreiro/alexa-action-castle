@@ -25,23 +25,182 @@ logger.setLevel(logging.INFO)
 game_state = None
 END = False
 
+class SpecialRequestHandler(AbstractRequestHandler):
+    """Handler for Intent Special Command."""
+    def can_handle(self, handler_input):
+        return ask_utils.is_intent_name("Special")(handler_input)
 
+    def handle(self, handler_input):
+        global game_state
+        command = ask_utils.request_util.get_slot(handler_input, "command").value
+        for item in game_state.get_items_in_scope():
+            special_commands = item.get_commands()
+            for special_command in special_commands:
+                if command == special_command.lower():
+                    speak_output=item.do_action(special_command, game_state)
+        return (
+            handler_input.response_builder
+                .speak(speak_output)
+                .ask(speak_output)
+                .response
+        )
 
+class InventoryRequestHandler(AbstractRequestHandler):
+    """Handler for Intent Inventory."""
+    def can_handle(self, handler_input):
+        return ask_utils.is_intent_name("Inventory")(handler_input)
+
+    def handle(self, handler_input):
+        global game_state
+        """ The player wants to check their inventory"""
+        if len(game_state.inventory) == 0:
+            speak_output="You don't have anything."
+        else:
+            descriptions = []
+            for item_name in game_state.inventory:
+                item = game_state.inventory[item_name]
+                descriptions.append(item.description)
+            speak_output="You have: " + ", ".join(descriptions)
+        return (
+            handler_input.response_builder
+                .speak(speak_output)
+                .ask(speak_output)
+                .response
+        )
+
+class DropRequestHandler(AbstractRequestHandler):
+    """Handler for Intent Drop."""
+    def can_handle(self, handler_input):
+        return ask_utils.is_intent_name("Drop")(handler_input)
+
+    def handle(self, handler_input):
+        global game_state
+        """ The player wants to remove something from their inventory """
+        command = ask_utils.request_util.get_slot(handler_input, "item").value
+        matched_item = False
+        # check whether any of the items in the inventory match the command
+        for item_name in game_state.inventory:
+            if item_name in command:
+                matched_item = True
+                item = game_state.inventory[item_name]
+                game_state.curr_location.add_item(item_name, item)
+                game_state.inventory.pop(item_name)
+                speak_output="You drop the %s." % item_name
+                break
+        # fail
+        if not matched_item:
+            speak_output="You don't have that."
+        return (
+            handler_input.response_builder
+                .speak(speak_output)
+                .ask(speak_output)
+                .response
+        )
+
+class TakeRequestHandler(AbstractRequestHandler):
+    """Handler for Intent Take."""
+    def can_handle(self, handler_input):
+        return ask_utils.is_intent_name("Take")(handler_input)
+
+    def handle(self, handler_input):
+        global game_state
+        global END
+        """ The player wants to put something in their inventory """
+        command = ask_utils.request_util.get_slot(handler_input, "item").value
+        matched_item = False
+        # check whether any of the items at this location match the command
+        for item_name in game_state.curr_location.items:
+            if item_name in command:
+                item = game_state.curr_location.items[item_name]
+                if item.get_property('gettable'):
+                    game_state.add_to_inventory(item)
+                    game_state.curr_location.remove_item(item)
+                    speak_output=item.take_text
+                    END = item.get_property('end_game')
+                else:
+                    speak_output="You cannot take the %s." % item_name
+                matched_item = True
+                break
+        # check whether any of the items in the inventory match the command
+        if not matched_item:
+            for item_name in game_state.inventory:
+                if item_name in command:
+                    speak_output="You already have the %s." % item_name
+                    matched_item = True
+        # fail
+        if not matched_item:
+            speak_output="You can't find it."
+
+        return (
+            handler_input.response_builder
+                .speak(speak_output)
+                .ask(speak_output)
+                .response
+        )
+
+class RedescribeRequestHandler(AbstractRequestHandler):
+    """Handler for Intent Redescribe."""
+    def can_handle(self, handler_input):
+        return ask_utils.is_intent_name("Redescribe")(handler_input)
+
+    def handle(self, handler_input):
+        global game_state
+        speak_output=game_state.describe()
+        return (
+            handler_input.response_builder
+                .speak(speak_output)
+                .ask(speak_output)
+                .response
+        )
+
+class ExamineRequestHandler(AbstractRequestHandler):
+    """Handler for Intent Examine."""
+    def can_handle(self, handler_input):
+        return ask_utils.is_intent_name("Examine")(handler_input)
+
+    def handle(self, handler_input):
+        global game_state
+        command = ask_utils.request_util.get_slot(handler_input, "item").value
+        matched_item = False
+        # check whether any of the items at this location match the command
+        for item_name in game_state.curr_location.items:
+            if item_name in command:
+                item = game_state.curr_location.items[item_name]
+                if item.examine_text:
+                    speak_output=item.examine_text
+                    matched_item = True
+                break
+        # check whether any of the items in the inventory match the command
+        for item_name in game_state.inventory:
+            if item_name in command:
+                item = game_state.inventory[item_name]
+            if item.examine_text:
+                speak_output=item.examine_text
+                matched_item = True
+        # fail
+        if not matched_item:
+            speak_output="You don't see anything special."
+
+        return (
+            handler_input.response_builder
+                .speak(speak_output)
+                .ask(speak_output)
+                .response
+        )
+        
+    
 class DirectionRequestHandler(AbstractRequestHandler):
     """Handler for Intent Direction."""
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
-        if ask_utils.get_intent_name(handler_input) in ["north", "south", "east", "west", "up", "down", "in", "out"]:
-            return True
-        else:
-            return False
+        return ask_utils.is_intent_name("Direction")(handler_input)
 
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
         """ The user wants to go in some direction """
         global game_state
         global END
-        direction =  ask_utils.get_intent_name(handler_input)
+        direction = ask_utils.request_util.get_slot(handler_input, "dir").value
         speak_output = ""
         if direction in game_state.curr_location.connections:
             if game_state.curr_location.is_blocked(direction, game_state):
@@ -76,7 +235,7 @@ class LaunchRequestHandler(AbstractRequestHandler):
     """Handler for Skill Launch."""
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
-
+        
         return ask_utils.is_request_type("LaunchRequest")(handler_input)
 
     def handle(self, handler_input):
@@ -85,7 +244,7 @@ class LaunchRequestHandler(AbstractRequestHandler):
         global END
         game_state = build_game()
         END = False
-        speak_output = "Welcome, to action castle! " + game_state.describe()
+        speak_output = "Welcome to action castle! " + game_state.describe()
 
         return (
             handler_input.response_builder
@@ -192,6 +351,12 @@ sb.add_request_handler(CancelOrStopIntentHandler())
 sb.add_request_handler(FallbackIntentHandler())
 sb.add_request_handler(SessionEndedRequestHandler())
 sb.add_request_handler(DirectionRequestHandler())
+sb.add_request_handler(RedescribeRequestHandler())
+sb.add_request_handler(ExamineRequestHandler())
+sb.add_request_handler(TakeRequestHandler())
+sb.add_request_handler(DropRequestHandler())
+sb.add_request_handler(InventoryRequestHandler())
+sb.add_request_handler(SpecialRequestHandler())
 
 sb.add_exception_handler(CatchAllExceptionHandler())
 

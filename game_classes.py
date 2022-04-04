@@ -1,7 +1,6 @@
 from collections import defaultdict
 from game_utils import *
 
-
 def check_preconditions(preconditions, game, print_failure_reasons=True):
     """Checks whether the player has met all of the specified preconditions"""
     all_conditions_met = True
@@ -25,6 +24,12 @@ def check_preconditions(preconditions, game, print_failure_reasons=True):
                 all_conditions_met = False
             if print_failure_reasons:
                 failure_reasons= "The %s isn't in this location" % item.name
+        if check == "location_doesnt_have_item":
+            item = preconditions[check]
+            if item.name in game.curr_location.items:
+                all_conditions_met = False
+            if print_failure_reasons:
+                failure_reasons= "The %s is blocking you" % item.name
     # todo - add other types of preconditions
     return all_conditions_met, failure_reasons
 
@@ -46,7 +51,7 @@ def describe_something(game, *args):
 
 def destroy_item(game, *args):
     """Removes an Item from the game by setting its location is set to None."""
-    (item, action_description) = args[0]
+    (item, action_description, already_done_description) = args[0]
     if game.is_in_inventory(item):
         game.inventory.pop(item.name)
         return action_description
@@ -61,6 +66,24 @@ def end_game(game, *args):
     """Ends the game."""
     end_message = args[0]
     return end_message
+
+def hit_guard(game, *args):
+    (guard, key) = args[0]
+    game.curr_location.remove_item(guard)
+    game.add_to_inventory(key)
+    return "The guard falls unconscious from the hit. His key falls from his hand and you pick it up."
+
+def do_exorcism(game, *args):
+    (candle, ghost, crown) = args[0]
+    game.curr_location.remove_item(ghost)
+    game.add_to_inventory(crown)
+    return "You read the runes out loud while the candle casts a flickering flame. The ghost vanishes in loud screams. His crown drops to the ground and you put it on."
+
+def give_rose_to_princess(game, *args):
+    (princess, rose, princess_heart) = args[0]
+    game.inventory.pop(rose.name)
+    game.add_to_inventory(princess_heart)
+    return "The princess blushes and thanks you for the rose. You have won her heart."
 
 class Game:
     """The Game class represents the world.  Internally, we use a 
@@ -90,7 +113,9 @@ class Game:
     
     def describe_current_location(self):
         """Describe the current location by printing its description field."""
-        return self.curr_location.description
+        if self.curr_location.description:
+            return self.curr_location.description
+        return ''
     
     def describe_exits(self):
         """List the directions that the player can take to exit from the current
@@ -100,6 +125,7 @@ class Game:
             exits.append(exit.capitalize())
         if len(exits) > 0:
             return "Exits: " + ', '.join(exits)
+        return ''
       
     def describe_items(self):
         """Describe what objects are in the current location."""
@@ -115,6 +141,7 @@ class Game:
                 out += ' and '
             
             return out[:-5]
+        return ''
     
     def add_to_inventory(self, item):
         """Add an item to the player's inventory."""
@@ -293,7 +320,6 @@ class Item:
 
     def do_action(self, command_text, game):
         """Perform a special action associated with this item"""
-        end_game = False  # Switches to True if this action ends the game.
         preconditions_met = False
         arguments = ''
         if command_text in self.commands:
@@ -301,9 +327,9 @@ class Item:
             preconditions_met, failure_reasons = check_preconditions(preconditions, game, True)
         if preconditions_met:
             speak_output = function(game, arguments)
-            return speak_output, end_game
+            return speak_output
         else:
-            return "Cannot perform the action %s" % command_text, end_game
+            return "Cannot perform the action %s" % command_text
             
             
             
